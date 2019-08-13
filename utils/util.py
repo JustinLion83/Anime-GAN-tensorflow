@@ -109,13 +109,20 @@ def cal_ETA(t_start, i, n_batch):
 
 
 def merge(images, size):
+    # 檢查傳進來的batch有幾張圖, 若超多張圖(大於size[0] * size[1])就限制住不能超過它(size[0] * size[1])
     if images.shape[0] > size[0] * size[1]:
         images = images[0:size[0] * size[1], ::]
+        
+    # height, width  
     h, w = images.shape[1], images.shape[2]
+    
+    # 檢查通道數是否合法(RGB: 3  or RGBA: 4)
     if (images.shape[3] in (3, 4)):
         c = images.shape[3]
+        # 創建全黑大圖
         img = np.zeros((h * size[0], w * size[1], c))
         for idx, image in enumerate(images):
+            # i: col, j: row(每幾個才會跳一次)
             i = idx % size[1]
             j = idx // size[1]
             img[j * h:j * h + h, i * w:i * w + w, :] = image
