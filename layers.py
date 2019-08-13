@@ -4,7 +4,7 @@ from tensor2tensor.layers.common_layers import shape_list, dense
 weight_init = tf.truncated_normal_initializer(mean=0.0, stddev=0.02)
 weight_regularizer = None
 
-
+# 把 h,w 壓扁為一個數字
 def flatten(x):
     tensor_shape = shape_list(x)
     return tf.reshape(x, shape=[tensor_shape[0], -1, tensor_shape[-1]])
