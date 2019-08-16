@@ -1,15 +1,15 @@
 import os
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
-import collections
+import collections # 對字典元素做排序的package
 import re
 import cv2
 import random
-from tqdm import tqdm
+from tqdm import tqdm # 用來顯示進度條
 import time
-import scipy.misc
+import scipy.misc # 用cv2或skimage(讀取稍微比cv2快, 但是resize所需時間十倍長於cv2)代替吧
 import numpy as np
-from scipy.stats import truncnorm
+from scipy.stats import truncnorm # 也可以用tf.truncated_norm代替
 
 
 def get_truncated_normal(mean=0, sd=0.5):
@@ -23,23 +23,25 @@ def check_folder(log_dir):
 
 def show_all_variables():
     model_vars = tf.trainable_variables()
-    slim.model_analyzer.analyze_vars(model_vars, print_info=True)
+    slim.model_analyzer.analyze_vars(model_vars, print_info=True) # 分析變數大小
 
 
 def get_assigment_map_from_checkpoint(tvars, init_checkpoint):
     """Compute the union of the current variables and checkpoint variables."""
     initialized_variable_names = {}
 
-    name_to_variable = collections.OrderedDict()
+    name_to_variable = collections.OrderedDict() # 創建一個有序的字典對象
     for var in tvars:
         name = var.name
         m = re.match("^(.*):\\d+$", name)
         if m is not None:
             name = m.group(1)
         name_to_variable[name] = var
-
+        
+    '''補充說明: 返回讀取的已保存參數的值: tf.train.load_variable()。'''
+    # 將已保存參數的（名稱，形狀）以列表的形式返回。
     init_vars = tf.train.list_variables(init_checkpoint)
-
+    
     assignment_map = collections.OrderedDict()
     for x in init_vars:
         (name, var) = (x[0], x[1])
@@ -72,7 +74,7 @@ def get_tfrecords(img_paths, output_dir, img_size):
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         example = tf.train.Example(
             features=tf.train.Features(
-                feature={"img": tf.train.Feature(bytes_list=tf.train.BytesList(value=[img.tostring()]))}))
+                feature={"img": tf.train.Feature(bytes_ytesList(valulist=tf.train.Be=[img.tostring()]))}))
         writer.write(example.SerializeToString())
     writer.close()
 
@@ -101,9 +103,9 @@ def input_fn(input_file, batch_size, img_size, buffer_size=10000):
 
 def cal_ETA(t_start, i, n_batch):
     t_temp = time.time()
-    t_avg = float(int(t_temp) - int(t_start)) / float(i + 1)
+    t_avg = float(int(t_temp) - int(t_start)) / float(i + 1) # 經過多久 / 步數 = 平均花多久
     if n_batch - i - 1 > 0:
-        return int((n_batch - i - 1) * t_avg)
+        return int((n_batch - i - 1) * t_avg) # 還有多少batch * t_avg = 還剩多久時間
     else:
         return int(t_temp) - int(t_start)
 
