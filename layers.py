@@ -1,6 +1,7 @@
 import tensorflow as tf
 from tensor2tensor.layers.common_layers import shape_list, dense
 
+# 權重用截斷常態分佈來初始化
 weight_init = tf.truncated_normal_initializer(mean=0.0, stddev=0.02)
 weight_regularizer = None
 
@@ -9,11 +10,11 @@ def flatten(x):
     tensor_shape = shape_list(x)
     return tf.reshape(x, shape=[tensor_shape[0], -1, tensor_shape[-1]])
 
-
+# L2範數
 def l2_norm(v, eps=1e-12):
     return v / (tf.reduce_sum(v ** 2) ** 0.5 + eps)
 
-
+# 光譜標準化(為了讓filters滿足Lipshitz連續)
 def spectral_norm(w, is_training, iteration=1):
     w_shape = shape_list(w)
     w = tf.reshape(w, [-1, w_shape[-1]])  # [N, output_filters] kernel_size*kernel_size*input_filters = N
@@ -33,11 +34,13 @@ def spectral_norm(w, is_training, iteration=1):
 
         u_ = tf.matmul(v_norm, w)  # [1, output_filters]
         u_norm = l2_norm(u_)
-
+    
+    # 權重除以最大奇異值來保持在1以內
     # Au=λ1u  u⊤Au=λ1u⊤u=λ1
     sigma = tf.matmul(tf.matmul(v_norm, w), u_norm, transpose_b=True)  # [1,1]
     w_norm = w / sigma
-
+    
+    # 必須執行完規定的操作(如果is_training: 譜標準化)才能對裡面進行操作(Reshape回本來的形狀)
     # Update estimated 1st singular vector while training
     with tf.control_dependencies([tf.cond(is_training,
                                           true_fn=lambda: u.assign(u_norm), false_fn=lambda: u.assign(u))]):
@@ -50,20 +53,32 @@ def batch_norm(x, is_training, scope='batch_norm'):
     return tf.layers.batch_normalization(x,
                                          momentum=0.9,
                                          epsilon=1e-05,
-                                         training=is_training,
+                                         training=is_training, # 重要!
                                          name=scope)
 
-
+'''
+結合"譜標準化"的 卷積 & 轉置卷積(用來上採樣)
+tf.nn.conv2d          中的filter參數，是[filter_h, filter_w, in_ch, out_ch]的形式
+tf.nn.conv2d_transpose中的filter參數，是[filter_h, filter_w, out_ch，in_ch]的形式
+注意in_ch和out_ch反過來了，因為兩者互為反向，所以輸入輸出要調換位置！
+'''
+#-----------------------------------------------------------------------
 def spectral_conv2d(x, filters, kernel_size, stride, is_training, padding='SAME', use_bias=True, scope='conv2d'):
     with tf.variable_scope(scope):
         w = tf.get_variable("conv_w",
                             shape=[kernel_size, kernel_size, shape_list(x)[-1], filters],
-                            initializer=weight_init,
-                            regularizer=weight_regularizer)
+                            initializer=weight_init,        # truncate_normal
+                            regularizer=weight_regularizer) # regularizer其實是None
+        
+        # tf.nn.conv2d: filter是4D的形狀(size, size, in_channel, out_channel)
         x = tf.nn.conv2d(input=x,
                          filter=spectral_norm(w, is_training),
-                         strides=[1, stride, stride, 1],
+                         strides=[1, stride, stride, 1],    # strides常見是在(h, w)變化
                          padding=padding)
+        
+        # tf.nn.bias_add 是tf.add 的一個特例，也即tf.add 支持的操作比tf.nn.bias_add 更多
+        # 二者均支持broadcasting（廣播機制），也即兩個操作數最後一個維度保持一致
+        # 除此之外，tf.add還支持第二個操作數是一維的情況
         if use_bias:
             bias = tf.get_variable("conv_bias", [filters], initializer=tf.constant_initializer(0.0))
             x = tf.nn.bias_add(x, bias)
@@ -73,10 +88,12 @@ def spectral_conv2d(x, filters, kernel_size, stride, is_training, padding='SAME'
 def spectral_deconv2d(x, filters, kernel_size, stride, is_training, padding='SAME', use_bias=True, scope='deconv2d'):
     with tf.variable_scope(scope):
         x_shape = shape_list(x)
-        if padding == 'SAME':
+        if padding == 'SAME': 
+            # (h, w)放大stride倍
             output_shape = [x_shape[0], x_shape[1] * stride, x_shape[2] * stride, filters]
-
-        else:
+        
+        else:       #(VALID)
+            # max(kernel_size - stride, 0): 需要補的部分
             output_shape = [x_shape[0], x_shape[1] * stride + max(kernel_size - stride, 0),
                             x_shape[2] * stride + max(kernel_size - stride, 0), filters]
 
@@ -94,7 +111,7 @@ def spectral_deconv2d(x, filters, kernel_size, stride, is_training, padding='SAM
             x = tf.nn.bias_add(x, bias)
 
     return x
-
+#-------------------------------------------------------------------
 
 def up_sample(x, scale_factor=2):
     _, h, w, _ = x.get_shape().as_list()
