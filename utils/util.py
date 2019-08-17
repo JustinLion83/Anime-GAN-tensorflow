@@ -28,9 +28,10 @@ def show_all_variables():
 
 def get_assigment_map_from_checkpoint(tvars, init_checkpoint):
     """Compute the union of the current variables and checkpoint variables."""
+    '''param assigment: 要回復的變數'''
     initialized_variable_names = {}
-
     name_to_variable = collections.OrderedDict() # 創建一個有序的字典對象
+    
     for var in tvars:
         name = var.name
         m = re.match("^(.*):\\d+$", name)
