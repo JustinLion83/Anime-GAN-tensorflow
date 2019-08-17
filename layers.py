@@ -111,14 +111,15 @@ def spectral_deconv2d(x, filters, kernel_size, stride, is_training, padding='SAM
             x = tf.nn.bias_add(x, bias)
 
     return x
-#-------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------
 
+'''直接用Resize放大inputs(理論是能消滅棋盤效應, 但有時輸出的圖很糟(?))''''
 def up_sample(x, scale_factor=2):
     _, h, w, _ = x.get_shape().as_list()
     new_size = [h * scale_factor, w * scale_factor]
     return tf.image.resize_nearest_neighbor(x, size=new_size)
 
-
+'''Self-Attention(自注意), 特別之處是能掌握"整體"的訊息, 普通的卷積只能掌握"局部"而已'''
 def attention(x, filters, is_training, scope='attention', reuse=False):
     with tf.variable_scope(scope, reuse=reuse):
         f = spectral_conv2d(x, filters // 8, kernel_size=1, stride=1, padding='VALID', is_training=is_training,
@@ -142,7 +143,7 @@ def attention(x, filters, is_training, scope='attention', reuse=False):
 
     return x
 
-
+'''普通的殘差層, 使用prelu()'''
 def residual_block(inputs, output_channel, stride, is_training, scope='residual'):
     with tf.variable_scope(scope):
         x = spectral_conv2d(inputs, output_channel, 3, stride, is_training=is_training, use_bias=False, scope='conv_1')
@@ -154,7 +155,7 @@ def residual_block(inputs, output_channel, stride, is_training, scope='residual'
 
     return x
 
-
+'''鑑別器用的殘差層'''
 def discriminator_block(inputs, output_channel, kernel_size, stride, is_training, scope='d_residual'):
     with tf.variable_scope(scope):
         x = spectral_conv2d(inputs, output_channel, kernel_size, stride, is_training=is_training, use_bias=False,
@@ -166,7 +167,7 @@ def discriminator_block(inputs, output_channel, kernel_size, stride, is_training
 
     return x
 
-
+'''參數化的relu, 讓model自己去學習leaky_relu的alpha該是多少(實際效果有待更多驗證)'''
 def prelu(x):
     alphas = tf.get_variable('alpha', shape_list(x)[-1],
                              initializer=tf.constant_initializer(0.0),
@@ -201,13 +202,37 @@ def PixelShuffler(inputs, scale=2):
     shape_2 = [batch_size, h * scale, w * scale, 1]  # [bs, 2h, 2w, 1]
 
     # Reshape and transpose for periodic shuffling for each channel
+    '''
+    函數介紹
+    tf.split(value, num_or_size_splits, axis):把一個張量劃分成幾個子張量。
+    param value             ：準備切分的張量
+    param num_or_size_splits：準備切成幾份
+    param axis               :準備在第幾個維度上進行切割
+    
+    其中分割方式分為兩種
+    1.num_or_size_splits傳入一個整數，直接在axis=D這個維度上把張量平均切分成幾個小張量
+    2.num_or_size_splits傳入一個向量（向量各元素和要跟原本該維度的數值相等）就根據該向量有幾個元素就分為幾項）
+    舉個例子:
+
+    # Tensor為（5， 30）
+    # 此時5是axis=0， 30是axis=1，若要在axis=1這個维度上把該Tensor拆成三個子張量
+    
+    # 傳入Tensor時
+    split0, split1, split2 = tf.split(value, [4, 15, 11], 1)
+    tf.shape(split0)  # [5, 4]
+    tf.shape(split1)  # [5, 15]
+    tf.shape(split2)  # [5, 11]
+    
+    # 傳入整数時
+    split0, split1, split2 = tf.split(value, num_or_size_splits=3, axis=1)
+    tf.shape(split0)  # [5, 10]
+    '''
     input_split = tf.split(inputs, channel_target, axis=3)  # [bs, h, w, 4] * 64
     output = tf.concat([PhaseShift(x, shape_1, shape_2) for x in input_split], axis=3)  # [bs, 2h, 2w, 64]
 
     return output
 
-
-# ResBlock in BigGAN
+'''殘差層(上採樣, output的[h,w]擴大為inputs的兩倍)'''
 def ResBlockUp(inputs, output_channel, is_training, scope='residual', reuse=False):
     with tf.variable_scope(scope, reuse=reuse):
         x = batch_norm(inputs, is_training, scope='bn1')
@@ -217,13 +242,13 @@ def ResBlockUp(inputs, output_channel, is_training, scope='residual', reuse=Fals
         x = tf.nn.leaky_relu(x)
         x = spectral_conv2d(x, output_channel, 3, stride=1, is_training=is_training, scope='conv1')
 
-        # skip
+        # skip(對inputs轉置卷積, 接著直接加上結果, 避免batch_norm把細節省略)
         skip = spectral_deconv2d(inputs, output_channel, 3, stride=2, is_training=is_training, scope='deconv_skip')
         x = x + skip
 
     return x
 
-
+'''殘差層(下採樣, output的[h,w]縮小為inputs的一半)'''
 def ResBlockDown(inputs, output_channel, is_training, scope='residual', reuse=False):
     with tf.variable_scope(scope, reuse=reuse):
         x = batch_norm(inputs, is_training, scope='bn1')
